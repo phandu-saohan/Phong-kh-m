@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import type { Customer, TreatmentHistory, Appointment, Permission } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import type { Customer, TreatmentHistory, Appointment, Permission, Sale } from '../../types';
 import Card from '../common/Card';
 import Modal from '../common/Modal';
 import { PencilIcon } from '../icons/Icons';
@@ -7,28 +7,84 @@ import { PencilIcon } from '../icons/Icons';
 import { format } from 'date-fns';
 import { supabase } from '../../lib/supabaseClient';
 import StarRating from '../common/StarRating';
+import { PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
+
 
 interface CustomerDetailProps {
   customer: Customer;
   onBack: () => void;
   onUpdateCustomer: (customer: Customer) => void;
   appointments: Appointment[];
+  sales: Sale[];
   permissions: Set<Permission>;
 }
 
-const CustomerDetail: React.FC<CustomerDetailProps> = ({ customer, onBack, onUpdateCustomer, appointments, permissions }) => {
+const COLORS = ['#6366F1', '#EC4899', '#10B981', '#F59E0B'];
+
+const CustomerDetail: React.FC<CustomerDetailProps> = ({ customer, onBack, onUpdateCustomer, appointments, sales, permissions }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   
   const [editedCustomer, setEditedCustomer] = useState<Customer>(customer);
   const [selectedTreatment, setSelectedTreatment] = useState<TreatmentHistory | null>(null);
   const [noteContent, setNoteContent] = useState('');
   const [isUploading, setIsUploading] = useState(false);
 
-
   useEffect(() => {
     setEditedCustomer(customer);
   }, [customer]);
+
+  const customerAnalysis = useMemo(() => {
+    if (!customer) return null;
+
+    // Spending analysis
+    const customerSales = sales.filter(s => s.customer.id === customer.id);
+    const totalVisits = [...new Set(customer.treatmentHistory.map(th => th.treatmentDate.toISOString().split('T')[0]))].length;
+    const averageSpending = totalVisits > 0 ? customer.totalSpent / totalVisits : 0;
+
+    let serviceSpending = 0;
+    let productSpending = 0;
+    
+    customerSales.forEach(sale => {
+        sale.items.forEach(item => {
+            if (item.type === 'service') {
+                serviceSpending += item.price * item.quantity;
+            } else {
+                productSpending += item.price * item.quantity;
+            }
+        });
+    });
+    
+    const spendingDistribution = [
+        { name: 'Dịch vụ', value: serviceSpending },
+        { name: 'Sản phẩm', value: productSpending },
+    ].filter(item => item.value > 0);
+
+    // Service preferences
+    const serviceFrequency: { [key: string]: number } = {};
+    customer.treatmentHistory.forEach(treatment => {
+        serviceFrequency[treatment.serviceName] = (serviceFrequency[treatment.serviceName] || 0) + 1;
+    });
+    const topServices = Object.entries(serviceFrequency)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+        
+    // Feedback summary
+    const totalReviews = customer.feedback.length;
+    const averageRating = totalReviews > 0 ? customer.feedback.reduce((sum, fb) => sum + fb.rating, 0) / totalReviews : 0;
+
+
+    return {
+        totalVisits,
+        averageSpending,
+        spendingDistribution,
+        topServices,
+        totalReviews,
+        averageRating,
+    };
+}, [customer, sales]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -162,12 +218,18 @@ const CustomerDetail: React.FC<CustomerDetailProps> = ({ customer, onBack, onUpd
                       <div className="flex justify-between"><dt className="text-gray-500">Lần cuối đến:</dt><dd className="font-medium text-gray-900">{customer.lastVisit ? format(customer.lastVisit, 'dd/MM/yyyy') : 'N/A'}</dd></div>
                       <div className="flex justify-between items-center"><dt className="text-gray-500">Tổng chi tiêu:</dt><dd className="font-bold text-lg text-clinic-secondary">{customer.totalSpent.toLocaleString('vi-VN')}₫</dd></div>
                   </dl>
-                  {permissions.has('edit_customer') && (
-                    <button onClick={() => setIsEditModalOpen(true)} className="mt-6 w-full flex items-center justify-center bg-gray-100 text-gray-700 py-2 px-4 rounded-md text-sm font-semibold hover:bg-gray-200 transition-colors">
-                        <PencilIcon />
-                        <span className="ml-2">Chỉnh sửa thông tin</span>
-                    </button>
-                  )}
+                   <div className="mt-6 space-y-2">
+                        {permissions.has('edit_customer') && (
+                            <button onClick={() => setIsEditModalOpen(true)} className="w-full flex items-center justify-center bg-gray-100 text-gray-700 py-2 px-4 rounded-md text-sm font-semibold hover:bg-gray-200 transition-colors">
+                                <PencilIcon />
+                                <span className="ml-2">Chỉnh sửa thông tin</span>
+                            </button>
+                        )}
+                        <button onClick={() => setIsAnalysisModalOpen(true)} className="w-full flex items-center justify-center bg-clinic-accent text-white py-2 px-4 rounded-md text-sm font-semibold hover:bg-teal-600 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                            <span>Phân tích khách hàng</span>
+                        </button>
+                    </div>
               </div>
             </Card>
           </div>
@@ -230,6 +292,50 @@ const CustomerDetail: React.FC<CustomerDetailProps> = ({ customer, onBack, onUpd
           </div>
         </div>
       </div>
+
+      {customerAnalysis && (
+        <Modal isOpen={isAnalysisModalOpen} onClose={() => setIsAnalysisModalOpen(false)} title={`Phân tích khách hàng: ${customer.name}`} size="lg">
+          <div className="p-4 sm:p-6 space-y-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-center">
+                  <Card className="!p-4"><p className="text-sm text-gray-500">Tổng số lần đến</p><p className="text-2xl font-bold">{customerAnalysis.totalVisits}</p></Card>
+                  <Card className="!p-4"><p className="text-sm text-gray-500">Chi tiêu TB/lần</p><p className="text-2xl font-bold">{customerAnalysis.averageSpending.toLocaleString('vi-VN', {notation: 'compact'})}₫</p></Card>
+                  <Card className="!p-4"><p className="text-sm text-gray-500">Số lần đánh giá</p><p className="text-2xl font-bold">{customerAnalysis.totalReviews}</p></Card>
+                  <Card className="!p-4"><p className="text-sm text-gray-500">Đánh giá TB</p><div className="flex justify-center mt-1"><StarRating rating={customerAnalysis.averageRating} size="md" /></div></Card>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Card title="Phân bổ chi tiêu">
+                      {customerAnalysis.spendingDistribution.length > 0 ? (
+                          <ResponsiveContainer width="100%" height={250}>
+                              <PieChart>
+                                  <Pie data={customerAnalysis.spendingDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                                      {customerAnalysis.spendingDistribution.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number) => `${value.toLocaleString('vi-VN')}₫`} />
+                                  <Legend />
+                              </PieChart>
+                          </ResponsiveContainer>
+                      ) : <p className="text-center text-gray-500 py-10">Chưa có dữ liệu chi tiêu.</p>}
+                  </Card>
+                  <Card title="Top 5 dịch vụ sử dụng">
+                      {customerAnalysis.topServices.length > 0 ? (
+                          <ResponsiveContainer width="100%" height={250}>
+                              <BarChart data={customerAnalysis.topServices} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis type="number" hide />
+                                  <YAxis dataKey="name" type="category" tick={{ fontSize: 12, width: 200 }} />
+                                  <Tooltip formatter={(value: number) => `${value} lần`} />
+                                  <Bar dataKey="count" name="Số lần" fill="#10B981" />
+                              </BarChart>
+                          </ResponsiveContainer>
+                      ) : <p className="text-center text-gray-500 py-10">Chưa sử dụng dịch vụ nào.</p>}
+                  </Card>
+              </div>
+          </div>
+           <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" onClick={() => setIsAnalysisModalOpen(false)} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">Đóng</button>
+            </div>
+        </Modal>
+      )}
 
       <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="Chỉnh sửa thông tin khách hàng">
         <form onSubmit={handleSubmit}>
