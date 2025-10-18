@@ -1,0 +1,8 @@
+{
+  "short_name": "ClinicCRM",
+  "name": "CRM Phòng Khám Thẩm Mỹ",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#F59E0B",
+  "background_color": "#F9FAFB"
+}
